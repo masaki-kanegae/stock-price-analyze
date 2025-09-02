@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>株価分析ツール</title>
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container mt-4">
+        <h1 class="text-center mb-4">株価分析ツール</h1>
+        
+        <div class="row justify-content-center">
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-body">
+                        <h5 class="card-title">銘柄分析</h5>
+                        <form id="analysisForm">
+                            <div class="mb-3">
+                                <label for="symbol" class="form-label">銘柄コード</label>
+                                <input type="text" class="form-control" id="symbol" name="symbol" 
+                                       placeholder="例: 7203.T (トヨタ), AAPL (Apple)" required>
+                                <div class="form-text">
+                                    日本株: 銘柄コード.T (例: 7203.T)<br>
+                                    米国株: ティッカーシンボル (例: AAPL, GOOGL)
+                                </div>
+                            </div>
+                            <div class="mb-3">
+                                <label for="period" class="form-label">期間</label>
+                                <select class="form-select" id="period" name="period">
+                                    <option value="1mo">1ヶ月</option>
+                                    <option value="3mo">3ヶ月</option>
+                                    <option value="6mo">6ヶ月</option>
+                                    <option value="1y" selected>1年</option>
+                                    <option value="2y">2年</option>
+                                    <option value="5y">5年</option>
+                                </select>
+                            </div>
+                            <button type="submit" class="btn btn-primary w-100">分析開始</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-body">
+                        <h5 class="card-title">収益率分析</h5>
+                        <form id="returnAnalysisForm">
+                            <div class="mb-3">
+                                <label for="return_symbol" class="form-label">銘柄コード</label>
+                                <input type="text" class="form-control" id="return_symbol" name="symbol" 
+                                       placeholder="例: 7203.T (トヨタ), AAPL (Apple)" required>
+                            </div>
+                            <div class="mb-3">
+                                <label for="target_date" class="form-label">基準日</label>
+                                <input type="date" class="form-control" id="target_date" name="target_date" required>
+                                <div class="form-text">
+                                    指定した日付を基準とした収益率を表示します
+                                </div>
+                            </div>
+                            <div class="mb-3">
+                                <label for="days_around" class="form-label">表示期間（前後日数）</label>
+                                <select class="form-select" id="days_around" name="days_around">
+                                    <option value="10">10日</option>
+                                    <option value="20">20日</option>
+                                    <option value="30" selected>30日</option>
+                                    <option value="60">60日</option>
+                                </select>
+                            </div>
+                            <button type="submit" class="btn btn-success w-100">収益率分析</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="loading" class="text-center mt-4" style="display: none;">
+            <div class="spinner-border" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p class="mt-2">データを取得中...</p>
+        </div>
+
+        <div id="error" class="alert alert-danger mt-4" style="display: none;"></div>
+
+        <div id="results" class="mt-4" style="display: none;">
+            <div class="row">
+                <div class="col-md-12">
+                    <div class="card mb-3">
+                        <div class="card-body">
+                            <h5 class="card-title">統計情報</h5>
+                            <div id="stats" class="row"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col-md-12">
+                    <div class="card mb-3">
+                        <div class="card-body">
+                            <h5 class="card-title">株価チャート</h5>
+                            <div id="candlestick-chart"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col-md-12">
+                    <div class="card mb-3">
+                        <div class="card-body">
+                            <h5 class="card-title">出来高</h5>
+                            <div id="volume-chart"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="card mb-3">
+                        <div class="card-body">
+                            <h5 class="card-title">RSI</h5>
+                            <div id="rsi-chart"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="card mb-3">
+                        <div class="card-body">
+                            <h5 class="card-title">MACD</h5>
+                            <div id="macd-chart"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="returnResults" class="mt-4" style="display: none;">
+            <div class="row">
+                <div class="col-md-12">
+                    <div class="card mb-3">
+                        <div class="card-body">
+                            <h5 class="card-title">収益率統計情報</h5>
+                            <div id="returnStats" class="row"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col-md-12">
+                    <div class="card mb-3">
+                        <div class="card-body">
+                            <h5 class="card-title">累積収益率</h5>
+                            <div id="return-chart"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col-md-12">
+                    <div class="card mb-3">
+                        <div class="card-body">
+                            <h5 class="card-title">日次収益率</h5>
+                            <div id="daily-return-chart"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        document.getElementById('analysisForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const formData = new FormData(this);
+            const loading = document.getElementById('loading');
+            const error = document.getElementById('error');
+            const results = document.getElementById('results');
+            
+            loading.style.display = 'block';
+            error.style.display = 'none';
+            results.style.display = 'none';
+            
+            fetch('/analyze', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                loading.style.display = 'none';
+                
+                if (data.error) {
+                    error.textContent = data.error;
+                    error.style.display = 'block';
+                    return;
+                }
+                
+                // 統計情報表示
+                const statsDiv = document.getElementById('stats');
+                statsDiv.innerHTML = '';
+                for (const [key, value] of Object.entries(data.stats)) {
+                    statsDiv.innerHTML += `
+                        <div class="col-md-2 col-sm-4 col-6 text-center">
+                            <h6>${key}</h6>
+                            <p class="mb-0 fw-bold">${value}</p>
+                        </div>
+                    `;
+                }
+                
+                // チャート描画
+                Plotly.newPlot('candlestick-chart', JSON.parse(data.candlestick_chart).data, JSON.parse(data.candlestick_chart).layout, {responsive: true});
+                Plotly.newPlot('volume-chart', JSON.parse(data.volume_chart).data, JSON.parse(data.volume_chart).layout, {responsive: true});
+                Plotly.newPlot('rsi-chart', JSON.parse(data.rsi_chart).data, JSON.parse(data.rsi_chart).layout, {responsive: true});
+                Plotly.newPlot('macd-chart', JSON.parse(data.macd_chart).data, JSON.parse(data.macd_chart).layout, {responsive: true});
+                
+                results.style.display = 'block';
+            })
+            .catch(err => {
+                loading.style.display = 'none';
+                error.textContent = 'エラーが発生しました: ' + err.message;
+                error.style.display = 'block';
+            });
+        });
+
+        // 収益率分析フォームのイベントリスナー
+        document.getElementById('returnAnalysisForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const formData = new FormData(this);
+            const loading = document.getElementById('loading');
+            const error = document.getElementById('error');
+            const returnResults = document.getElementById('returnResults');
+            const regularResults = document.getElementById('results');
+            
+            loading.style.display = 'block';
+            error.style.display = 'none';
+            returnResults.style.display = 'none';
+            regularResults.style.display = 'none';
+            
+            fetch('/analyze_returns', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                loading.style.display = 'none';
+                
+                if (data.error) {
+                    error.textContent = data.error;
+                    error.style.display = 'block';
+                    return;
+                }
+                
+                // 収益率統計情報表示
+                const returnStatsDiv = document.getElementById('returnStats');
+                returnStatsDiv.innerHTML = '';
+                for (const [key, value] of Object.entries(data.return_stats)) {
+                    returnStatsDiv.innerHTML += `
+                        <div class="col-md-2 col-sm-4 col-6 text-center">
+                            <h6>${key}</h6>
+                            <p class="mb-0 fw-bold">${value}</p>
+                        </div>
+                    `;
+                }
+                
+                // チャート描画
+                Plotly.newPlot('return-chart', JSON.parse(data.return_chart).data, JSON.parse(data.return_chart).layout, {responsive: true});
+                Plotly.newPlot('daily-return-chart', JSON.parse(data.daily_return_chart).data, JSON.parse(data.daily_return_chart).layout, {responsive: true});
+                
+                returnResults.style.display = 'block';
+            })
+            .catch(err => {
+                loading.style.display = 'none';
+                error.textContent = 'エラーが発生しました: ' + err.message;
+                error.style.display = 'block';
+            });
+        });
+    </script>
+</body>
+</html>
