@@ -6,6 +6,7 @@ import plotly.utils
 import json
 import numpy as np
 import ta
+from datetime import datetime, timedelta
 
 app = Flask(__name__)
 
@@ -44,6 +45,121 @@ def calculate_technical_indicators(df):
     df['BB_lower'] = bollinger.bollinger_lband()
     
     return df
+
+def calculate_return_rates(df, target_date, days_around=30):
+    """指定日付を基準とした収益率を計算"""
+    if df is None or len(df) == 0:
+        return None
+    
+    try:
+        target_date = pd.to_datetime(target_date)
+    except:
+        return None
+    
+    # 指定日付に最も近い営業日を見つける
+    df_index = pd.to_datetime(df.index)
+    closest_idx = df_index.get_indexer([target_date], method='nearest')[0]
+    
+    if closest_idx == -1:
+        return None
+    
+    closest_date = df_index[closest_idx]
+    base_price = df.iloc[closest_idx]['Close']
+    
+    # 指定日付前後のデータを取得
+    start_idx = max(0, closest_idx - days_around)
+    end_idx = min(len(df), closest_idx + days_around + 1)
+    
+    period_df = df.iloc[start_idx:end_idx].copy()
+    
+    # 収益率計算
+    period_df['Daily_Return'] = period_df['Close'].pct_change() * 100
+    period_df['Cumulative_Return'] = ((period_df['Close'] / base_price) - 1) * 100
+    
+    return {
+        'data': period_df,
+        'target_date': closest_date,
+        'base_price': base_price,
+        'stats': {
+            '基準日価格': f"¥{base_price:.2f}",
+            '期間最高収益率': f"{period_df['Cumulative_Return'].max():.2f}%",
+            '期間最低収益率': f"{period_df['Cumulative_Return'].min():.2f}%",
+            '平均日次収益率': f"{period_df['Daily_Return'].mean():.3f}%",
+            '日次収益率標準偏差': f"{period_df['Daily_Return'].std():.3f}%"
+        }
+    }
+
+def create_return_chart(return_data):
+    """収益率チャートを作成"""
+    if not return_data or 'data' not in return_data:
+        return None
+    
+    df = return_data['data']
+    target_date = return_data['target_date']
+    
+    # 累積収益率チャート
+    cumulative_return = go.Scatter(
+        x=df.index,
+        y=df['Cumulative_Return'],
+        mode='lines+markers',
+        name='累積収益率',
+        line=dict(color='blue')
+    )
+    
+    # 基準日の線
+    target_line = go.Scatter(
+        x=[target_date, target_date],
+        y=[df['Cumulative_Return'].min(), df['Cumulative_Return'].max()],
+        mode='lines',
+        name='基準日',
+        line=dict(color='red', dash='dash')
+    )
+    
+    # ゼロライン
+    zero_line = go.Scatter(
+        x=df.index,
+        y=[0]*len(df),
+        mode='lines',
+        name='0%',
+        line=dict(color='gray', dash='dot')
+    )
+    
+    layout = go.Layout(
+        title='累積収益率',
+        xaxis={'title': '日付'},
+        yaxis={'title': '収益率 (%)'},
+        height=400
+    )
+    
+    fig = go.Figure(data=[cumulative_return, target_line, zero_line], layout=layout)
+    return json.dumps(fig, cls=plotly.utils.PlotlyJSONEncoder)
+
+def create_daily_return_chart(return_data):
+    """日次収益率チャートを作成"""
+    if not return_data or 'data' not in return_data:
+        return None
+    
+    df = return_data['data']
+    
+    # 正の収益率と負の収益率で色分け
+    colors = ['green' if x >= 0 else 'red' for x in df['Daily_Return'].fillna(0)]
+    
+    daily_return = go.Bar(
+        x=df.index,
+        y=df['Daily_Return'],
+        name='日次収益率',
+        marker=dict(color=colors)
+    )
+    
+    layout = go.Layout(
+        title='日次収益率',
+        xaxis={'title': '日付'},
+        yaxis={'title': '収益率 (%)'},
+        height=300
+    )
+    
+    fig = go.Figure(data=[daily_return], layout=layout)
+    return json.dumps(fig, cls=plotly.utils.PlotlyJSONEncoder)
 
 def create_candlestick_chart(df, symbol):
     """ローソク足チャートを作成"""
@@ -124,6 +240,100 @@ def create_macd_chart(df):
     fig = go.Figure(data=[macd, signal, histogram], layout=layout)
     return json.dumps(fig, cls=plotly.utils.PlotlyJSONEncoder)
 
+def analyze_investment_signals(df):
+    """投資判断シグナルを分析"""
+    if df is None or len(df) < 50:
+        return {'signal': 'HOLD', 'score': 0, 'reasons': ['データ不足']}
+    
+    signals = []
+    score = 0
+    reasons = []
+    
+    # 最新の値を取得
+    latest = df.iloc[-1]
+    prev = df.iloc[-2] if len(df) > 1 else latest
+    
+    # 1. RSIシグナル
+    if not pd.isna(latest['RSI']):
+        if latest['RSI'] < 30:
+            signals.append('BUY')
+            score += 2
+            reasons.append('RSI売られ過ぎ(30以下)')
+        elif latest['RSI'] > 70:
+            signals.append('SELL')
+            score -= 2
+            reasons.append('RSI買われ過ぎ(70以上)')
+        else:
+            score += 0.5
+            reasons.append('RSI中立圏')
+    
+    # 2. MACDシグナル
+    if not pd.isna(latest['MACD']) and not pd.isna(latest['MACD_signal']):
+        if latest['MACD'] > latest['MACD_signal'] and prev['MACD'] <= prev['MACD_signal']:
+            signals.append('BUY')
+            score += 2
+            reasons.append('MACDゴールデンクロス')
+        elif latest['MACD'] < latest['MACD_signal'] and prev['MACD'] >= prev['MACD_signal']:
+            signals.append('SELL')
+            score -= 2
+            reasons.append('MACDデッドクロス')
+        elif latest['MACD'] > latest['MACD_signal']:
+            score += 1
+            reasons.append('MACD上昇トレンド')
+        else:
+            score -= 1
+            reasons.append('MACD下降トレンド')
+    
+    # 3. 移動平均線シグナル
+    if not pd.isna(latest['SMA_20']) and not pd.isna(latest['SMA_50']):
+        if latest['SMA_20'] > latest['SMA_50']:
+            signals.append('BUY')
+            score += 1
+            reasons.append('短期移動平均線が長期を上回る')
+        else:
+            signals.append('SELL')
+            score -= 1
+            reasons.append('短期移動平均線が長期を下回る')
+    
+    # 4. ボリンジャーバンドシグナル
+    if not pd.isna(latest['BB_upper']) and not pd.isna(latest['BB_lower']):
+        if latest['Close'] <= latest['BB_lower']:
+            signals.append('BUY')
+            score += 1.5
+            reasons.append('ボリンジャーバンド下限タッチ')
+        elif latest['Close'] >= latest['BB_upper']:
+            signals.append('SELL')
+            score -= 1.5
+            reasons.append('ボリンジャーバンド上限タッチ')
+    
+    # 5. 価格トレンドシグナル
+    if len(df) >= 5:
+        recent_prices = df['Close'][-5:].tolist()
+        trend_up = all(recent_prices[i] <= recent_prices[i+1] for i in range(len(recent_prices)-1))
+        trend_down = all(recent_prices[i] >= recent_prices[i+1] for i in range(len(recent_prices)-1))
+        
+        if trend_up:
+            score += 1
+            reasons.append('直近5日上昇トレンド')
+        elif trend_down:
+            score -= 1
+            reasons.append('直近5日下降トレンド')
+    
+    # 総合判定
+    if score >= 3:
+        final_signal = 'BUY'
+    elif score <= -3:
+        final_signal = 'SELL'
+    else:
+        final_signal = 'HOLD'
+    
+    return {
+        'signal': final_signal,
+        'score': score,
+        'reasons': reasons,
+        'confidence': min(abs(score) * 10, 100)
+    }
+
 @app.route('/')
 def index():
     return render_template('index.html')
@@ -140,6 +350,9 @@ def analyze():
     
     # テクニカル指標計算
     df = calculate_technical_indicators(df)
+    
+    # 投資判断シグナル分析
+    investment_signals = analyze_investment_signals(df)
     
     # チャート作成
     candlestick_chart = create_candlestick_chart(df, symbol)
@@ -161,7 +374,39 @@ def analyze():
         'volume_chart': volume_chart,
         'rsi_chart': rsi_chart,
         'macd_chart': macd_chart,
-        'stats': stats
+        'stats': stats,
+        'investment_signals': investment_signals
+    })
+
+@app.route('/analyze_returns', methods=['POST'])
+def analyze_returns():
+    symbol = request.form['symbol'].upper()
+    target_date = request.form['target_date']
+    days_around = int(request.form.get('days_around', 30))
+    
+    # データ取得（長期間のデータを取得）
+    df = get_stock_data(symbol, '2y')
+    if df is None or len(df) == 0:
+        return jsonify({'error': '指定された銘柄のデータが見つかりません'})
+    
+    # 収益率計算
+    return_data = calculate_return_rates(df, target_date, days_around)
+    if return_data is None:
+        return jsonify({'error': '指定された日付のデータが見つかりません'})
+    
+    # チャート作成
+    return_chart = create_return_chart(return_data)
+    daily_return_chart = create_daily_return_chart(return_data)
+    
+    if return_chart is None or daily_return_chart is None:
+        return jsonify({'error': 'チャートの作成に失敗しました'})
+    
+    return jsonify({
+        'return_chart': return_chart,
+        'daily_return_chart': daily_return_chart,
+        'return_stats': return_data['stats'],
+        'target_date': return_data['target_date'].strftime('%Y-%m-%d'),
+        'base_price': return_data['base_price']
     })
 
 if __name__ == '__main__':
