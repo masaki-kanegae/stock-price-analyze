@@ -43,6 +43,37 @@
                     </div>
                 </div>
             </div>
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-body">
+                        <h5 class="card-title">収益率分析</h5>
+                        <form id="returnAnalysisForm">
+                            <div class="mb-3">
+                                <label for="return_symbol" class="form-label">銘柄コード</label>
+                                <input type="text" class="form-control" id="return_symbol" name="symbol" 
+                                       placeholder="例: 7203.T (トヨタ), AAPL (Apple)" required>
+                            </div>
+                            <div class="mb-3">
+                                <label for="target_date" class="form-label">基準日</label>
+                                <input type="date" class="form-control" id="target_date" name="target_date" required>
+                                <div class="form-text">
+                                    指定した日付を基準とした収益率を表示します
+                                </div>
+                            </div>
+                            <div class="mb-3">
+                                <label for="days_around" class="form-label">表示期間（前後日数）</label>
+                                <select class="form-select" id="days_around" name="days_around">
+                                    <option value="10">10日</option>
+                                    <option value="20">20日</option>
+                                    <option value="30" selected>30日</option>
+                                    <option value="60">60日</option>
+                                </select>
+                            </div>
+                            <button type="submit" class="btn btn-success w-100">収益率分析</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
         </div>
 
         <div id="loading" class="text-center mt-4" style="display: none;">
@@ -53,6 +84,34 @@
         </div>
 
         <div id="error" class="alert alert-danger mt-4" style="display: none;"></div>
+
+        <!-- 投資判断シグナル表示エリア -->
+        <div id="investmentSignals" class="mt-4" style="display: none;">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">🤖 AI投資判断シグナル</h5>
+                    <span id="signalBadge" class="badge fs-6"></span>
+                </div>
+                <div class="card-body">
+                    <div class="row mb-3">
+                        <div class="col-md-4">
+                            <h6>総合スコア</h6>
+                            <div class="display-6" id="signalScore">0</div>
+                        </div>
+                        <div class="col-md-8">
+                            <h6>信頼度</h6>
+                            <div class="progress" style="height: 25px;">
+                                <div class="progress-bar" id="confidenceBar" role="progressbar" style="width: 0%"></div>
+                            </div>
+                            <small class="text-muted" id="confidenceText">0%</small>
+                        </div>
+                    </div>
+                    <hr>
+                    <h6>分析根拠</h6>
+                    <ul id="signalReasons" class="list-unstyled"></ul>
+                </div>
+            </div>
+        </div>
 
         <div id="results" class="mt-4" style="display: none;">
             <div class="row">
@@ -107,6 +166,41 @@
                 </div>
             </div>
         </div>
+
+        <div id="returnResults" class="mt-4" style="display: none;">
+            <div class="row">
+                <div class="col-md-12">
+                    <div class="card mb-3">
+                        <div class="card-body">
+                            <h5 class="card-title">収益率統計情報</h5>
+                            <div id="returnStats" class="row"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col-md-12">
+                    <div class="card mb-3">
+                        <div class="card-body">
+                            <h5 class="card-title">累積収益率</h5>
+                            <div id="return-chart"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col-md-12">
+                    <div class="card mb-3">
+                        <div class="card-body">
+                            <h5 class="card-title">日次収益率</h5>
+                            <div id="daily-return-chart"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
@@ -137,6 +231,11 @@
                     return;
                 }
                 
+                // 投資判断シグナル表示
+                if (data.investment_signals) {
+                    displayInvestmentSignals(data.investment_signals);
+                }
+                
                 // 統計情報表示
                 const statsDiv = document.getElementById('stats');
                 statsDiv.innerHTML = '';
@@ -163,6 +262,114 @@
                 error.style.display = 'block';
             });
         });
+
+        // 収益率分析フォームのイベントリスナー
+        document.getElementById('returnAnalysisForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const formData = new FormData(this);
+            const loading = document.getElementById('loading');
+            const error = document.getElementById('error');
+            const returnResults = document.getElementById('returnResults');
+            const regularResults = document.getElementById('results');
+            
+            loading.style.display = 'block';
+            error.style.display = 'none';
+            returnResults.style.display = 'none';
+            regularResults.style.display = 'none';
+            
+            fetch('/analyze_returns', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                loading.style.display = 'none';
+                
+                if (data.error) {
+                    error.textContent = data.error;
+                    error.style.display = 'block';
+                    return;
+                }
+                
+                // 収益率統計情報表示
+                const returnStatsDiv = document.getElementById('returnStats');
+                returnStatsDiv.innerHTML = '';
+                for (const [key, value] of Object.entries(data.return_stats)) {
+                    returnStatsDiv.innerHTML += `
+                        <div class="col-md-2 col-sm-4 col-6 text-center">
+                            <h6>${key}</h6>
+                            <p class="mb-0 fw-bold">${value}</p>
+                        </div>
+                    `;
+                }
+                
+                // チャート描画
+                Plotly.newPlot('return-chart', JSON.parse(data.return_chart).data, JSON.parse(data.return_chart).layout, {responsive: true});
+                Plotly.newPlot('daily-return-chart', JSON.parse(data.daily_return_chart).data, JSON.parse(data.daily_return_chart).layout, {responsive: true});
+                
+                returnResults.style.display = 'block';
+            })
+            .catch(err => {
+                loading.style.display = 'none';
+                error.textContent = 'エラーが発生しました: ' + err.message;
+                error.style.display = 'block';
+            });
+        });
+
+        function displayInvestmentSignals(signals) {
+            const signalsDiv = document.getElementById('investmentSignals');
+            signalsDiv.style.display = 'block';
+            
+            // シグナルバッジの設定
+            const badge = document.getElementById('signalBadge');
+            const signal = signals.signal;
+            
+            badge.className = 'badge fs-6 ';
+            
+            if (signal === 'BUY') {
+                badge.classList.add('bg-success');
+                badge.textContent = '🚀 買い推奨';
+            } else if (signal === 'SELL') {
+                badge.classList.add('bg-danger');
+                badge.textContent = '📉 売り推奨';
+            } else {
+                badge.classList.add('bg-warning');
+                badge.textContent = '⏸️ 様子見';
+            }
+            
+            // スコア表示
+            document.getElementById('signalScore').textContent = signals.score.toFixed(1);
+            
+            // 信頼度表示
+            const confidence = Math.min(signals.confidence, 100);
+            const confidenceBar = document.getElementById('confidenceBar');
+            const confidenceText = document.getElementById('confidenceText');
+            
+            confidenceBar.style.width = confidence + '%';
+            confidenceText.textContent = confidence + '%';
+            
+            // プログレスバーの色を設定
+            confidenceBar.className = 'progress-bar ';
+            if (confidence >= 70) {
+                confidenceBar.classList.add('bg-success');
+            } else if (confidence >= 40) {
+                confidenceBar.classList.add('bg-warning');
+            } else {
+                confidenceBar.classList.add('bg-danger');
+            }
+            
+            // 理由リスト表示
+            const reasonsList = document.getElementById('signalReasons');
+            let reasonsHtml = '';
+            signals.reasons.forEach(reason => {
+                reasonsHtml += `<li class="mb-2">
+                                   <span class="badge bg-secondary me-2">•</span>
+                                   ${reason}
+                                </li>`;
+            });
+            reasonsList.innerHTML = reasonsHtml;
+        }
     </script>
 </body>
 </html>
